@@ -1,50 +1,52 @@
 clear; close all; clc; workspace; tic;
-%% USER-DEFINED DESIGN PARAMETERS
-scale_law = [1598.0      657.68      29.651;...     % Scale-law constants with each row as a chosen degree polynomial                               
-             661.93      406.03      15.696;...
-             515.83      167.02      4.4789];
+%% SECTION 1 - USER-DEFINED DESIGN PARAMETERS
+scale_law = [1598.0      657.68      29.65;...     % Scale-law constants for Gyroid TPMS structure                                
+             661.93      406.03      15.69;...
+             515.83      167.02      4.478];
 base_material  = [2100; 0.42];                      % Young's Modulus in MPa, and Poisson's Ratio                                                        
 % Preprocess parameters
 cell_size = 10;                                     % mm
-cell_counts = [2, 1, 1];                            % Number of unit cell is x, y, and z directions, respectively                                                           
+cell_counts = [5, 1, 1];                            % Number of unit cell is x, y, and z directions, respectively                                                           
 plate_thickness = 1;                                % Upper and lower plate thickness in mm                                                                     
-total_load = 100;                                   % Total load in N
-% Solution Parameters
+total_load = 2000;                                  % Total load in N
+% Solution parameters
 minumum_volfrac  = 0.1;                             % Minimum volume fraction constraint
 maximum_volfrac  = 0.5;                             % Maximum volume fraction constraint
 target_volfrac = 0.3;                               % Total volume fraction constraint
 r_min = 1.5;
-max_loop = 20;                                       % Maximum number of iterations
-tol_x = 0.001;                                       % Terminarion criterion
-displayflag_loop = 0;                               % Display density distribution at each iteration (this will increase the termination time)
+max_loop = 20;                                      % Maximum number of iterations
+tol_x = 0.001;                                      % Terminarion criterion
+displayflag_loop = 1;                               % Display density distribution at each iteration (this will increase the termination time)
 % Lattice morphology 
-f = @(x,y,z,k) (cos(k(1)*x).*sin(k(2)*y) + cos(k(2)*y).*sin(k(3)*z)...    % TPMS function
+f = @(x,y,z,k) (cos(k(1)*x).*sin(k(2)*y) + cos(k(2)*y).*sin(k(3)*z)...    % Gyroid TPMS function
     + cos(k(3)*z).*sin(k(1)*x));
 ftf= @(p) 1.52*p;                                   % t to rho* mapping
-% Reconcsturction parameter
+% Reconcsturction parameters
 mesh_scaling = 5;                                   % Defines mesh density of reconstructed geometry
-fem_reconstruction = 1;                             % Switch for fem reconstruction 1 and 0
-stl_reconstruction = 1;                             % Switch for stl reconstruction 1 and 0
-%% START OF FEA AND OPTIMIZATION
+fem_reconstruction = 1;                             % Switch for fem reconstruction on: 1 and off: 0
+stl_reconstruction = 1;                             % Switch for stl reconstruction on: 1 and off: 0
+%% SECTION 2 - START OF FEA AND OPTIMIZATION
 nelx = cell_counts(1)*cell_size;
 nely = cell_counts(2)*cell_size + (2*plate_thickness);
 nelz = cell_counts(3)*cell_size;
-VF = ones(nely, nelx, nelz);                                                        % create a VF array
-VF(plate_thickness + 1: end - plate_thickness, :, :) = (maximum_volfrac + minumum_volfrac)/2;                   % assign initial volume fraction to design domain
-type = zeros(nely, nelx, nelz);                                                     % create a type array
+VF = ones(nely, nelx, nelz);                                                                  % create a VF array
+VF(plate_thickness + 1: end - plate_thickness, :, :) = (maximum_volfrac + minumum_volfrac)/2; % assign initial volume fraction to design domain
+type = zeros(nely, nelx, nelz);                                                               % create a type array
 type(plate_thickness + 1: end - plate_thickness, :, :) = 1;                                   % assign type to design domain 0 means non-design domain, 1 means design domain
-% USER-DEFINED LOAD DOFs
-[il,jl,kl] = meshgrid(nelx, 0, 0:nelz);                 % Coordinates
-loadnid = kl*(nelx+1)*(nely+1)+il*(nely+1)+(nely+1-jl); % Node IDs
-loaddof = 3*loadnid(:) - 1;                             % DOFs
-% USER-DEFINED SUPPORT FIXED DOFs
-[iif,jf,kf] = meshgrid(0,0:nely,0:nelz);                  % Coordinates
-fixednid = kf*(nelx+1)*(nely+1)+iif*(nely+1)+(nely+1-jf); % Node IDs
-fixeddof = [3*fixednid(:); 3*fixednid(:)-1; 3*fixednid(:)-2]; % DOFs
-% PREPARE FINITE ELEMENT ANALYSIS
+% User-defined load DOFs
+[il,jl,kl] = meshgrid(nelx,nely,0:nelz);					% Coordinates			
+loadnid = kl*(nelx+1)*(nely+1)+il*(nely+1)+(nely+1-jl); 	% Node IDs
+loaddof = 3*loadnid(:) - 1;    								% DOFs			                         
+% User-defined support DOFs
+[iifL,jfL,kfL] = meshgrid(0,0,0:nelz);       					% Coordinates Roller BC                 
+fixednidL = kfL*(nelx+1)*(nely+1)+iifL*(nely+1)+(nely+1-jfL);	% Node IDs 	   
+[iifR,jfR,kfR] = meshgrid(nelx, 0:nely, 0:nelz);         		% Coordinates Symmetry Plane	          
+fixednidR = kfR*(nelx+1)*(nely+1)+iifR*(nely+1)+(nely+1-jfR); 	% Node IDs   
+fixeddof = [3*fixednidL(:)-1; 3*fixednidR(:)-2]; 				% DOFs		
+% Prepare for finite element analysis
 nele = nelx*nely*nelz;
 ndof = 3*(nelx+1)*(nely+1)*(nelz+1);
-F = sparse(loaddof,1, -total_load/(nelz+1) ,ndof,1);                 
+F = sparse(loaddof,1, -total_load/(nelz+1) ,ndof,1);            
 U = zeros(ndof,1);
 freedofs = setdiff(1:ndof,fixeddof);
 % KE = lk_H8(nu);
@@ -58,7 +60,7 @@ edofMat = repmat(edofVec,1,24)+ ...
     3*(nely+1)*(nelx+1)+[0 1 2 3*nely + [3 4 5 0 1 2] -3 -2 -1]],nele,1);
 iK = reshape(kron(edofMat,ones(24,1))',24*24*nele,1);
 jK = reshape(kron(edofMat,ones(1,24))',24*24*nele,1);
-% PREPARE FILTER
+% Prepare filter
 iH = ones(nele*(2*(ceil(r_min)-1)+1)^2,1);
 jH = ones(size(iH));
 sH = zeros(size(iH));
@@ -92,7 +94,7 @@ ce=zeros(nele,1);
 ces=zeros(nele,1);
 while change > tol_x && loop < max_loop
     loop = loop+1;
-    % FE-ANALYSIS
+    % Finite element analysis
     for i=1:nele
         KE=hex(xPhys(i),1,1,1,type(i),base_material,scale_law);
         sK((((i-1)*24*24)+1):i*24*24,1)=reshape(KE,24*24,1);
@@ -102,7 +104,7 @@ while change > tol_x && loop < max_loop
     maxit = 8000;
     M = diag(diag(K(freedofs,freedofs)));
     U(freedofs,:) = pcg(K(freedofs,freedofs),F(freedofs,:),tolit,maxit,M);
-    % OBJECTIVE FUNCTION AND SENSITIVITY ANALYSIS
+    % Objective function and sensitivity analysis
     for m=1:nele
         ce(m,1)= U(edofMat(m,:))'*hex(xPhys(m),1,1,1,type(m),base_material,...
             scale_law)*U(edofMat(m,:));
@@ -112,13 +114,12 @@ while change > tol_x && loop < max_loop
          ces(n,1)= U(edofMat(n,:))'*(hex_sens(xPhys(n),1,1,1,type(n),...
              base_material,scale_law))*U(edofMat(n,:));
     end
-    
     dc=-reshape(ces,[nely,nelx,nelz]);
     dv = ones(nely,nelx,nelz);
-    % FILTERING AND MODIFICATION OF SENSITIVITIES
+    % Filtering and modification of sensitivities
     dc(:) = H*(dc(:)./Hs);  
     dv(:) = H*(dv(:)./Hs);
-    % OPTIMALITY CRITERIA UPDATE
+    % Optimality criteria update
     l1 = 0; l2 = 1e9; move = 0.2;
     while (l2-l1)/(l1+l2) > 1e-3
         lmid = 0.5*(l2+l1);
@@ -132,15 +133,15 @@ while change > tol_x && loop < max_loop
     fprintf(' It.:%5i Obj.:%11.4f Vol.:%7.3f ch.:%7.3f\n',loop,c,(sum(xPhys(:))-(2*plate_thickness)*nelx*nelz)/(nelx*(nely-2*plate_thickness)*nelz),change);
     if displayflag_loop, clf; display_3D(xPhys,minumum_volfrac,maximum_volfrac); end %#ok<UNRCH>
 end
-clf; display_3D(xPhys,minumum_volfrac,maximum_volfrac);                                       % Display density results
+clf; display_3D(xPhys,minumum_volfrac,maximum_volfrac); % Display density results
 toc
-%% ===================== CALL FOR RECONSTRUCTION ===================%
+%% SECTION 3 - CALL FOR RECONSTRUCTION
 if fem_reconstruction || stl_reconstruction
 elem_connectivity_contour = element_setup(edofMat,xPhys,nele);
 averaged_densities = averaging_densities(elem_connectivity_contour);
 reconstruct("test", averaged_densities, cell_size, cell_counts, mesh_scaling, f, ftf, fem_reconstruction,stl_reconstruction);
 end
-%% ===================== DISPLAY 3D TOPOLOGY (ISO-VIEW) ===================%
+%% SECTION 4 - DISPLAY 3D TOPOLOGY (ISO-VIEW)
 function display_3D(rho,minimum_volfrac,maximum_volfrac)
 [nely,nelx,nelz] = size(rho);
 hx = 1; hy = 1; hz = 1;            % User-defined unit element size
@@ -152,7 +153,7 @@ for k = 1:nelz
         x = (i-1)*hx;
         for j = 1:nely
             y = nely*hy - (j-1)*hy;
-            if (rho(j,i,k) >= minimum_volfrac - 1/1E4  && rho(j,i,k) <= maximum_volfrac + 1/1E4)  % User-defined display to exclude plates
+            if (rho(j,i,k) >= minimum_volfrac - 1E3  && rho(j,i,k) <= maximum_volfrac + 1E3)  % User-defined display to exclude plates
                 vert = [x y z; x y-hx z; x+hx y-hx z; x+hx y z; x y z+hx;x y-hx z+hx; x+hx y-hx z+hx;x+hx y z+hx];
                 vert(:,[2 3]) = vert(:,[3 2]); vert(:,2,:) = -vert(:,2,:);
                 patch('Faces', face, 'Vertices', vert, 'FaceColor', max(min([0.2 + 0.8 * (1 - (rho(j, i, k) - minimum_volfrac) / (maximum_volfrac - minimum_volfrac)), ...
@@ -165,7 +166,7 @@ for k = 1:nelz
 end
 axis equal; axis tight; axis off; box on; view([30,30]); pause(1e-6);
 end
-%% ===================== GENERATE ELEMENT STIFFNESS MATRIX =================== %%
+%% SECTION 5 - GENERATE ELEMENT STIFFNESS MATRIX 
 function Kelem=hex(xPhys,length_x,length_y,length_z,type,base_material,scale_law)
 if type == 1   % Lattice Material Model
     C11=polyval(scale_law(1, :), xPhys);
@@ -236,7 +237,7 @@ for xi1=GaussPoint
     end
 end
 end
-%% ===================== GENERATE ELEMENT SENSITIVITY MATRIX ===================%
+%% SECTION 6 - GENERATE ELEMENT SENSITIVITY MATRIX
 function Ksens=hex_sens(xPhys,length_x,length_y,length_z,type,base_material,scale_law)
 if type == 1   % Lattice Material Model Sensitivity 
     C11 = polyval(polyder(scale_law(1,:)), xPhys);
@@ -305,7 +306,7 @@ for xi1=GaussPoint
     end
 end
 end
-%% ================== DATA PREPARATION FOR RECONSTRUCTION ================%
+%% SECTION 7 - DATA PREPARATION FOR RECONSTRUCTION
 function elem_connectivity_contour = element_setup(edofMat,xPhys,nele)
 xPhysClmn = reshape(xPhys, [], 1);
 x_edofMat = zeros(nele, 8);
@@ -313,7 +314,7 @@ x_edofMat(:, 1:8) = edofMat(:, 3:3:24) / 3;
 elem_connectivity_contour = [(1:nele)', x_edofMat, xPhysClmn];
 elem_connectivity_contour(elem_connectivity_contour(:, 10) == 1, :) = [];
 end
-%% ===================== RELATIVE DENSITY AVERAGING ===================%
+%% SECTION 8 - RELATIVE DENSITY AVERAGING
 function averaged_densities = averaging_densities(elem_connectivity_contour)
 data = elem_connectivity_contour(:, 2:end-1);
 nodeNumbers = unique(data(:));
@@ -330,7 +331,7 @@ for idx = 1:numNodes
 end
 averaged_densities(all(averaged_densities == 0, 2), :) = [];
 end
-%% ===================== STL and FEM Reconstructions ===================%
+%% SECTION 9 - STL AND FEM RECONSTRUCTION
 function reconstruct(file_name, averaged_densities, cell_size, cell_counts, mesh_scaling, f, ftf, fem_reconstruction, stl_reconstruction) 
 le = cell_counts * cell_size;
 node_inc = 1;
@@ -343,13 +344,13 @@ F=griddedInterpolant(X1,Y1,Z1,rhomat);
                                      linspace(0,le(2),fine_size(2)),...
                                      linspace(0,le(3),fine_size(3)));
 rho_finer=F(X_finer,Y_finer,Z_finer);
-k = 2*pi*cell_counts./le; %Coefficents for the TPMS function
+k = 2*pi*cell_counts./le; % Coefficents for the TPMS function
 [x,y,z] = meshgrid(linspace(0,le(1),fine_size(1)),linspace(0,le(2),fine_size(2)),linspace(0,le(3),fine_size(3)));
 t = ftf(rho_finer); 
 as = f(x,y,z,k);
 as_stl = (as - t).*(as + t);
 as_stl = flip(as_stl, 1);
-if stl_reconstruction % stl write
+if stl_reconstruction % STL write
 [F,V]=isosurface(x, y, z, as_stl, 0);
 [FC,VC]=isocaps(x, y, z, as_stl,0,'below');
 F= [F; FC+length(V(:,1))];
@@ -390,7 +391,52 @@ fprintf(fileID,'%s\n','ENDDATA');
 fclose(fileID);
 end
 end
+%% Scale Law Arrays (Change lines 3-5)
+% scale_law = [2758.20     156.45      54.48;...     % Scale-law constants for Primitive TPMS structure                             
+%              1116.90     277.47      34.01;...
+%              457.73      259.96      6.43];
 
+% scale_law = [1598.0      657.68      29.65;...     % Scale-law constants for Gyroid TPMS structure                                
+%              661.93      406.03      15.69;...
+%              515.83      167.02      4.478];
+
+% scale_law = [1556.30     738.08      37.14;...     % Scale-law constants for Diamond TPMS structure                             
+%              840.07      302.84      21.61;...
+%              604.60      118.89      4.54];
+%% CASE 1 -- Messerschmitt–Bölkow–Blohm beam (MBB) (Default)
+    % % User-defined load DOFs
+    % [il,jl,kl] = meshgrid(nelx,nely,0:nelz);					            % Coordinates			
+    % loadnid = kl*(nelx+1)*(nely+1)+il*(nely+1)+(nely+1-jl); 	            % Node IDs
+    % loaddof = 3*loadnid(:) - 1;    								        % DOFs			                         
+    % % User-defined support DOFs
+    % [iifL,jfL,kfL] = meshgrid(19,0,0:nelz);       					    % Coordinates Roller BC                 
+    % fixednidL = kfL*(nelx+1)*(nely+1)+iifL*(nely+1)+(nely+1-jfL);	        % Node IDs 	   
+    % [iifR,jfR,kfR] = meshgrid(nelx, 0:nely, 0:nelz);         		        % Coordinates Symmetry Plane	          
+    % fixednidR = kfR*(nelx+1)*(nely+1)+iifR*(nely+1)+(nely+1-jfR); 	    % Node IDs   
+    % fixeddof = [3*fixednidL(:)-1; 3*fixednidR(:)-2]; 				        % DOFs		
+%% CASE 2 -- Cantilever beam    (Change lines 36-45 from MBB Beam Case which is default case)
+    % % User-defined load DOFs
+    % [il,jl,kl] = meshgrid(119, nely, 0:nelz);                        		% Coordinates
+    % loadnid = kl*(nelx+1)*(nely+1)+il*(nely+1)+(nely+1-jl); 				% Node IDs
+    % loaddof = 3*loadnid(:) - 1;                             				% DOFs
+    % % User-defined support DOFs
+    % [iifL,jfL,kfL] = meshgrid(0:cell_size, 0, 0:nelz);                    % Coordinates Bottom Face
+    % fixednidL = kfL*(nelx+1)*(nely+1)+iifL*(nely+1)+(nely+1-jfL);   		% Node IDs
+    % [iifR,jfR,kfR] = meshgrid(0:cell_size, nely, 0:nelz);                 % Coordinates Top Face
+    % fixednidR = kfR*(nelx+1)*(nely+1)+iifR*(nely+1)+(nely+1-jfR);   		% Node IDs
+    % fixeddof = [3*fixednidR(:); 3*fixednidR(:)-1; 3*fixednidR(:)-2;...	% DOFs
+    %             3*fixednidL(:); 3*fixednidL(:)-1; 3*fixednidL(:)-2]; 
+%% CASE 3 -- Flatwise compression (Change lines 36-45 from MBB Beam Case which is default case, and line 49 for distribuded load)
+    % % User-defined load DOFs
+    % [il,jl,kl] = meshgrid(0:nelx, nely, 0:nelz);						    % Coordinates
+    % loadnid = kl*(nelx+1)*(nely+1)+il*(nely+1)+(nely+1-jl);				% Node IDs
+    % loaddof = 3*loadnid(:) - 1;                             			    % DOFs
+    % % User-defined support DOFs
+    % [iifR,jfR,kfR] = meshgrid(0:nelx, 0, 0:nelz);                  		% Coordinates
+    % fixednidR = kfR*(nelx+1)*(nely+1)+iifR*(nely+1)+(nely+1-jfR);  		% Node IDs
+    % fixeddof = [3*fixednidR(:); 3*fixednidR(:)-1; 3*fixednidR(:)-2]; 	    % DOFs
+
+    % F = sparse(loaddof,1,-total_load/((nelx+1)*(nelz+1)),ndof,1);	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This MATLAB code was written by:                                         %
 % M. Ozdemir - Karlsruhe Institute of Technology                           %
